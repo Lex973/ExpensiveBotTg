@@ -1,0 +1,35 @@
+[Unit]
+Description=Expense Bot Telegram service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=expensebot
+Group=expensebot
+WorkingDirectory=/var/lib/expense-bot
+EnvironmentFile=/etc/expense-bot.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/expense-bot/run.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=40
+StateDirectory=expense-bot
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
