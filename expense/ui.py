@@ -136,13 +136,15 @@ class UI:
             if table=='entries':
                 account=s.owned('accounts',uid,item['account'])
                 return f'<b>🗑️ Удалить операцию?</b>\n\n{KINDS[item["kind"]]} · <b>{rub(item["amount"])}</b>\n{esc(account["name"])} · {item["day"]}\n{esc(item["note"]) or "Без заметки"}\n\nБаланс и аналитика пересчитаются. Отменить удаление нельзя.', [[button('🗑️ Да, удалить',f'confirm:{table}:{ident}'),button('↩️ Отмена',f'entry:{ident}')]]
-            return '<b>🗑️ Удалить запись?</b>\n\n' + ('Категория останется в истории.' if table=='categories' else 'Удаление цели не удаляет деньги со счёта.' if table=='goals' else 'Можно удалить только счёт без операций и целей.'), [[button('🗑️ Да, удалить',f'confirm:{table}:{ident}'),button('↩️ Отмена',TABLE_ROUTES[table])]]
+            back=f'categories:{item["kind"]}' if table=='categories' else TABLE_ROUTES[table]
+            return '<b>🗑️ Удалить запись?</b>\n\n' + ('Категория останется в истории.' if table=='categories' else 'Удаление цели не удаляет деньги со счёта.' if table=='goals' else 'Можно удалить только счёт без операций и целей.'), [[button('🗑️ Да, удалить',f'confirm:{table}:{ident}'),button('↩️ Отмена',back)]]
         if action == 'confirm':
             state=json.loads(s.user(uid)['state']); target=[bits[1],int(bits[2])]
             if state.get('confirm_delete')!=target:
                 raise ValueError('Подтверждение устарело. Откройте запись заново.')
+            back=f'categories:{s.owned("categories",uid,target[1])["kind"]}' if target[0]=='categories' else TABLE_ROUTES[target[0]]
             s.delete(target[0],uid,target[1]); s.state(uid,{})
-            text,rows=self.render(uid,TABLE_ROUTES[target[0]])
+            text,rows=self.render(uid,back)
             return '✅ <b>Запись удалена</b>\n\n'+text,rows
         if action in ('new','edit','revise'):
             if action=='edit':
@@ -286,10 +288,10 @@ class UI:
                     if flow=='category':
                         if extra not in ('expense','income'): raise ValueError('Неизвестный тип категории.')
                         s.db.execute('INSERT INTO categories(user,name,kind) VALUES(?,?,?)',(uid,name,extra))
+                        route=f'categories:{extra}'
                     else:
-                        s.owned('categories',uid,extra)
+                        route=f'categories:{s.owned("categories",uid,extra)["kind"]}'
                         s.db.execute('UPDATE categories SET name=? WHERE user=? AND id=?',(name,uid,extra))
-                    route='categories'
                 elif flow=='account':
                     parts=[p.strip() for p in text.split(';')]
                     if len(parts)!=3: raise ValueError('Нужны название; тип; начальный остаток.')

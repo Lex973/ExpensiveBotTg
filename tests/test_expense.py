@@ -111,6 +111,18 @@ class LedgerTests(unittest.TestCase):
         self.ui.render(1,f'confirm:entries:{ident}')
         self.assertEqual(self.s.balance(1,self.a),0)
 
+    def test_income_category_forms_return_to_income_list(self):
+        self.ui.render(1,'form:category:income'); text,rows=self.ui.text(1,'Премия',90)
+        self.assertIn('Доходы\n',text)
+        ident=self.s.rows("SELECT id FROM categories WHERE name='Премия'")[0]['id']
+        self.assertIn(f'category:{ident}',[b['callback_data'] for row in rows for b in row])
+        self.ui.render(1,f'form:rename:{ident}'); text,_=self.ui.text(1,'Бонус',91)
+        self.assertIn('Доходы\n',text)
+        _,rows=self.ui.render(1,f'delete:categories:{ident}')
+        self.assertEqual(rows[0][1]['callback_data'],'categories:income')
+        text,_=self.ui.render(1,f'confirm:categories:{ident}')
+        self.assertIn('Доходы\n',text)
+
     def test_all_primary_screens(self):
         for route in ['home','help','accounts',f'account:{self.a}','categories','categories:income','history:0','goals','analytics:week','analytics:month',f'analytics:30:{self.b}','ai','insights']:
             text,rows=self.ui.render(1,route)
