@@ -61,6 +61,8 @@ TELEGRAM_WEBHOOK_SECRET=СЛУЧАЙНЫЙ_СЕКРЕТ
    `data` уже исключены из загрузки.
 2. В <https://vercel.com/new> импортируйте репозиторий.
 3. Framework Preset оставьте `Other`, Root Directory — корень репозитория.
+   Точка входа — корневой `app.py` с WSGI-приложением `app`: Vercel находит его
+   автоматически и направляет все запросы в него, отдельная папка `api/` не нужна.
 4. В Environment Variables добавьте для Production:
 
    ```text

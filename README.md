@@ -60,7 +60,7 @@ python -m compileall -q expense api scripts run.py
 
 ## Структура и следующий этап
 
-`expense/core.py` — данные и расчёты для SQLite/libSQL. `expense/ui.py` — русские экраны и формы. `expense/bot.py` — Telegram polling, CSV, адаптер ИИ. `expense/webhook.py` и `api/webhook.py` — защищённый Vercel webhook. `scripts/` — перенос базы и регистрация webhook. `tests/` — проверки.
+`expense/core.py` — данные и расчёты для SQLite/libSQL. `expense/ui.py` — русские экраны и формы. `expense/bot.py` — Telegram polling, CSV, адаптер ИИ. `expense/webhook.py` и `app.py` — защищённый Vercel webhook (WSGI). `scripts/` — перенос базы и регистрация webhook. `tests/` — проверки.
 
 Для Mini App можно повторно использовать Ledger; потребуется HTTP API, проверка Telegram initData на сервере, полноценная авторизация, адаптивный интерфейс и графики. Сейчас HTTP API не публикуется. Для большого числа пользователей понадобится ограничение нагрузки, миграции схемы и переход на серверную БД. Первый запуск создаёт схему автоматически.
 

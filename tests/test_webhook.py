@@ -1,8 +1,10 @@
+import io
 import json
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
-from expense.webhook import WebhookError, parse_update, process_update, validate_settings
+from expense.webhook import (WebhookError, application, parse_update,
+                             process_update, validate_settings)
 
 
 SETTINGS = {
@@ -52,6 +54,51 @@ class WebhookTests(unittest.TestCase):
         telegram.assert_called_once_with(SETTINGS['TELEGRAM_BOT_TOKEN'])
         bot.handle.assert_awaited_once_with(payload)
         store.db.close.assert_called_once_with()
+
+
+def call_wsgi(method, path, body=b'', secret=None):
+    environ = {'REQUEST_METHOD': method, 'PATH_INFO': path,
+               'CONTENT_LENGTH': str(len(body)), 'wsgi.input': io.BytesIO(body)}
+    if secret is not None:
+        environ['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] = secret
+    captured = {}
+
+    def start_response(status, headers):
+        captured['status'] = status
+        captured['headers'] = dict(headers)
+
+    payload = b''.join(application(environ, start_response))
+    return captured['status'], captured['headers'], payload
+
+
+class WsgiApplicationTests(unittest.TestCase):
+    def test_app_module_exports_wsgi_entrypoint(self):
+        import app
+        self.assertIs(app.app, application)
+
+    def test_get_reports_service_status_only_on_webhook_path(self):
+        status, headers, body = call_wsgi('GET', '/api/webhook')
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(headers['Content-Type'], 'application/json; charset=utf-8')
+        self.assertEqual(json.loads(body), {'ok': True, 'service': 'expense-bot-webhook'})
+        self.assertEqual(call_wsgi('GET', '/')[0], '404 Not Found')
+        self.assertEqual(call_wsgi('DELETE', '/api/webhook')[0], '405 Method Not Allowed')
+
+    def test_post_validates_size_and_forwards_secret(self):
+        self.assertEqual(call_wsgi('POST', '/api/webhook')[0], '400 Bad Request')
+        with patch('expense.webhook.process_update') as process:
+            status, _, body = call_wsgi('POST', '/api/webhook', b'{"update_id": 1}', 'secret')
+        process.assert_called_once_with(b'{"update_id": 1}', 'secret')
+        self.assertEqual((status, json.loads(body)), ('200 OK', {'ok': True}))
+
+    def test_post_maps_webhook_errors_to_http_status(self):
+        with patch('expense.webhook.process_update', side_effect=WebhookError(403, 'Нет')):
+            status, _, body = call_wsgi('POST', '/api/webhook', b'{}', 'wrong')
+        self.assertTrue(status.startswith('403'))
+        self.assertEqual(json.loads(body), {'ok': False, 'error': 'Нет'})
+        with patch('expense.webhook.process_update', side_effect=RuntimeError('boom')),                 self.assertLogs('expense.webhook', level='ERROR'):
+            status, _, _ = call_wsgi('POST', '/api/webhook', b'{}', 'x')
+        self.assertEqual(status, '500 Internal Server Error')
 
 
 if __name__ == '__main__':
