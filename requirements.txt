@@ -1,1 +1,2 @@
-# The bot uses only the Python standard library.
+# Required only for Vercel/Turso. Local SQLite mode still uses the standard library.
+libsql==0.1.11

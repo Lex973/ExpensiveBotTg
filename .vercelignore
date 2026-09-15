@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+.git/
+.idea/
+.runtime/
+.venv/
+__pycache__/
+data/
+deploy/
+scripts/
+tests/
+*.zip
+*.tar.gz

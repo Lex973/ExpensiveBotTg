@@ -94,6 +94,15 @@ class LedgerTests(unittest.TestCase):
         self.assertIn('0%',text)
         with self.assertRaises(ValueError): self.s.delete('accounts',1,self.b)
 
+    def test_account_opening_balance_is_not_an_income(self):
+        self.ui.render(1, 'form:account')
+        self.ui.text(1, 'Копилка; Накопительный; 15000', 77)
+        account = self.s.accounts(1)[-1]
+        self.assertEqual(account['opening'], 1500000)
+        self.assertEqual(self.s.balance(1, account['id']), 1500000)
+        self.assertEqual(self.s.rows('SELECT * FROM entries WHERE user=?', (1,)), [])
+        self.assertEqual(self.s.stats(1, date(2026, 9, 1), date(2026, 9, 10))['income'], 0)
+
     def test_delete_requires_matching_confirmation(self):
         self.s.save_entry(1,self.entry('income',100))
         ident=self.s.rows('SELECT id FROM entries')[0]['id']

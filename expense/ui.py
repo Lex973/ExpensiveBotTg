@@ -313,8 +313,13 @@ class UI:
                     else: s.db.execute('INSERT INTO goals(user,name,target,deadline,account) VALUES(?,?,?,?,?)',(uid,name,amount,deadline.isoformat(),account))
                     route='goals'
                 else: raise ValueError('Начните действие заново.')
-        except sqlite3.IntegrityError:
-            raise ValueError('У этого счёта уже есть цель. Выберите отдельный счёт.')
+        except Exception as error:
+            # libsql exposes remote constraint errors through its common Error
+            # class rather than sqlite3.IntegrityError.
+            constraint = isinstance(error, sqlite3.IntegrityError) or 'constraint' in str(error).lower()
+            if not constraint:
+                raise
+            raise ValueError('У этого счёта уже есть цель. Выберите отдельный счёт.') from None
         s.state(uid,{})
         content,rows=self.render(uid,route)
         return '✅ Сохранено\n\n'+content,rows

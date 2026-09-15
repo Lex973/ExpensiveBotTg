@@ -1,8 +1,36 @@
 import json
+import os
 import sqlite3
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+
+
+SCHEMA = '''
+CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, panel INTEGER, state TEXT NOT NULL DEFAULT '{}');
+CREATE TABLE IF NOT EXISTS accounts(id INTEGER PRIMARY KEY, user INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL, kind TEXT NOT NULL, opening INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS categories(id INTEGER PRIMARY KEY, user INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL, kind TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS entries(id INTEGER PRIMARY KEY, user INTEGER NOT NULL REFERENCES users(id), kind TEXT NOT NULL CHECK(kind IN ('income','expense','transfer')), amount INTEGER NOT NULL CHECK(amount>0), account INTEGER NOT NULL REFERENCES accounts(id), target INTEGER REFERENCES accounts(id), category INTEGER REFERENCES categories(id), day TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', source INTEGER, UNIQUE(user,source));
+CREATE INDEX IF NOT EXISTS entries_user_day ON entries(user,day);
+CREATE TABLE IF NOT EXISTS goals(id INTEGER PRIMARY KEY, user INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL, target INTEGER NOT NULL CHECK(target>0), account INTEGER NOT NULL UNIQUE REFERENCES accounts(id), deadline TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS budgets(user INTEGER NOT NULL REFERENCES users(id), category INTEGER NOT NULL REFERENCES categories(id), month TEXT NOT NULL, amount INTEGER NOT NULL CHECK(amount>0), PRIMARY KEY(user,category,month));
+CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS ui_panels(user INTEGER PRIMARY KEY REFERENCES users(id), revision TEXT NOT NULL, routes TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS handled_updates(user INTEGER PRIMARY KEY REFERENCES users(id), last_update INTEGER NOT NULL);
+'''
+
+
+def is_remote_database(path):
+    return str(path).startswith('libsql://')
+
+
+def database_from_env(environ=None):
+    """Create the persistent store selected by environment variables."""
+    environ = os.environ if environ is None else environ
+    remote = environ.get('TURSO_DATABASE_URL', '').strip()
+    if remote:
+        return Ledger(remote, environ.get('TURSO_AUTH_TOKEN', '').strip())
+    return Ledger(environ.get('DATABASE_PATH', 'data/expense.db'))
 
 
 def money(value):
@@ -36,28 +64,38 @@ def growth(current, previous):
 
 
 class Ledger:
-    def __init__(self, path='data/expense.db'):
-        if path != ':memory:':
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path)
-        self.db.row_factory = sqlite3.Row
-        self.db.executescript('''
-        PRAGMA foreign_keys=ON;
-        PRAGMA journal_mode=WAL;
-        CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, panel INTEGER, state TEXT NOT NULL DEFAULT '{}');
-        CREATE TABLE IF NOT EXISTS accounts(id INTEGER PRIMARY KEY, user INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL, kind TEXT NOT NULL, opening INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE IF NOT EXISTS categories(id INTEGER PRIMARY KEY, user INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL, kind TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE IF NOT EXISTS entries(id INTEGER PRIMARY KEY, user INTEGER NOT NULL REFERENCES users(id), kind TEXT NOT NULL CHECK(kind IN ('income','expense','transfer')), amount INTEGER NOT NULL CHECK(amount>0), account INTEGER NOT NULL REFERENCES accounts(id), target INTEGER REFERENCES accounts(id), category INTEGER REFERENCES categories(id), day TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', source INTEGER, UNIQUE(user,source));
-        CREATE INDEX IF NOT EXISTS entries_user_day ON entries(user,day);
-        CREATE TABLE IF NOT EXISTS goals(id INTEGER PRIMARY KEY, user INTEGER NOT NULL REFERENCES users(id), name TEXT NOT NULL, target INTEGER NOT NULL CHECK(target>0), account INTEGER NOT NULL UNIQUE REFERENCES accounts(id), deadline TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS budgets(user INTEGER NOT NULL REFERENCES users(id), category INTEGER NOT NULL REFERENCES categories(id), month TEXT NOT NULL, amount INTEGER NOT NULL CHECK(amount>0), PRIMARY KEY(user,category,month));
-        CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS ui_panels(user INTEGER PRIMARY KEY REFERENCES users(id), revision TEXT NOT NULL, routes TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS handled_updates(user INTEGER PRIMARY KEY REFERENCES users(id), last_update INTEGER NOT NULL);
-        ''')
+    def __init__(self, path='data/expense.db', auth_token=''):
+        self.remote = is_remote_database(path)
+        if '://' in str(path) and not self.remote:
+            raise ValueError('Поддерживается только адрес Turso формата libsql://...')
+        if self.remote:
+            if not auth_token:
+                raise ValueError('Для Turso требуется TURSO_AUTH_TOKEN.')
+            try:
+                import libsql
+            except ImportError:
+                raise RuntimeError('Установите зависимости из requirements.txt для подключения к Turso.') from None
+            self.db = libsql.connect(database=path, auth_token=auth_token)
+        else:
+            if path != ':memory:':
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+            self.db = sqlite3.connect(path)
+        self.db.execute('PRAGMA foreign_keys=ON')
+        if not self.remote:
+            self.db.execute('PRAGMA journal_mode=WAL')
+        self.db.executescript(SCHEMA)
+        self.db.commit()
+        # Базы, созданные до появления начального остатка, не имеют этой
+        # колонки.  Делаем миграцию на лету, сохраняя существующие счета.
+        account_columns = {row['name'] for row in self.rows('PRAGMA table_info(accounts)')}
+        if 'opening' not in account_columns:
+            with self.db:
+                self.db.execute('ALTER TABLE accounts ADD COLUMN opening INTEGER NOT NULL DEFAULT 0')
 
     def rows(self, sql, args=()):
-        return [dict(r) for r in self.db.execute(sql, args).fetchall()]
+        cursor = self.db.execute(sql, args)
+        names = [column[0] for column in (cursor.description or ())]
+        return [dict(zip(names, row)) for row in cursor.fetchall()]
 
     def user(self, uid):
         if not self.rows('SELECT id FROM users WHERE id=?', (uid,)):

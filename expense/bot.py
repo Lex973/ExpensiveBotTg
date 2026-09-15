@@ -10,10 +10,18 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from .core import Ledger, period
+from .core import database_from_env, period
 from .ui import HOME, UI, esc
 
 log = logging.getLogger('expense')
+
+
+def load_env(path='.env'):
+    env = Path(path)
+    if env.exists():
+        for line in env.read_text(encoding='utf-8-sig').splitlines():
+            if line.strip() and not line.lstrip().startswith('#') and '=' in line:
+                key,value=line.split('=',1); os.environ.setdefault(key.strip(),value.strip().strip('\"').strip("'"))
 
 
 class APIError(Exception):
@@ -234,17 +242,13 @@ class Bot:
 
 
 def main():
-    env=Path('.env')
-    if env.exists():
-        for line in env.read_text(encoding='utf-8-sig').splitlines():
-            if line.strip() and not line.lstrip().startswith('#') and '=' in line:
-                key,value=line.split('=',1); os.environ.setdefault(key.strip(),value.strip().strip('\"').strip("'"))
+    load_env()
     token=os.getenv('TELEGRAM_BOT_TOKEN','')
     if not token:
         raise SystemExit('Добавьте TELEGRAM_BOT_TOKEN в .env (см. .env.example), затем повторите запуск.')
     logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s %(message)s')
     tz=timezone(timedelta(hours=int(os.getenv('UTC_OFFSET_HOURS','5'))))
-    store=Ledger(os.getenv('DATABASE_PATH','data/expense.db'))
+    store=database_from_env()
     bot=Bot(store,Telegram(token),lambda:datetime.now(tz).date(),os.getenv('AI_ENDPOINT',''),os.getenv('AI_API_KEY',''))
     try: asyncio.run(bot.run())
     except KeyboardInterrupt: pass
