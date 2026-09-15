@@ -189,5 +189,17 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(m=='editMessageText' for m,_ in api.calls),2)
         s.db.close()
 
+    async def test_start_moves_panel_to_bottom_of_chat(self):
+        s=Ledger(':memory:'); api=FakeAPI(); bot=Bot(s,api)
+        start=lambda ident:{'update_id':ident,'message':{'message_id':ident,'chat':{'id':1,'type':'private'},'text':'/start'}}
+        await bot.handle(start(1)); await bot.handle(start(2))
+        methods=[m for m,_ in api.calls]
+        self.assertEqual(methods.count('sendMessage'),2)
+        self.assertNotIn('editMessageText',methods)
+        self.assertIn(('deleteMessage',{'chat_id':1,'message_id':100}),api.calls)
+        await bot.handle({'update_id':3,'message':{'message_id':3,'chat':{'id':1,'type':'private'},'text':'/help'}})
+        self.assertEqual([m for m,_ in api.calls].count('editMessageText'),1)
+        s.db.close()
+
 
 if __name__=='__main__': unittest.main()

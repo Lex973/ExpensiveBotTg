@@ -86,7 +86,8 @@ class Bot:
         self.ai_endpoint,self.ai_key=ai_endpoint,ai_key
         self.locks={}
 
-    async def panel(self,uid,text,rows):
+    async def panel(self,uid,text,rows,fresh=False):
+        """Redraw the single persistent panel; fresh=True moves it to the bottom of the chat."""
         user=self.store.user(uid)
         revision=uuid.uuid4().hex[:12]
         routes=[b['callback_data'] for row in rows for b in row if 'callback_data' in b]
@@ -95,7 +96,10 @@ class Bot:
         def remember():
             with self.store.db:
                 self.store.db.execute('INSERT INTO ui_panels(user,revision,routes) VALUES(?,?,?) ON CONFLICT(user) DO UPDATE SET revision=excluded.revision,routes=excluded.routes',(uid,revision,json.dumps(routes)))
-        if user['panel']:
+        if user['panel'] and fresh:
+            try: await self.api.call('deleteMessage',chat_id=uid,message_id=user['panel'])
+            except APIError: pass
+        elif user['panel']:
             try:
                 await self.api.call('editMessageText',message_id=user['panel'],**payload)
                 remember()
@@ -156,7 +160,7 @@ class Bot:
                     mark_handled()
                     try: await self.api.call('deleteMessage',chat_id=uid,message_id=message['message_id'])
                     except APIError: pass
-                await self.panel(uid,*screen)
+                await self.panel(uid,*screen,fresh=not callback and text.startswith('/start'))
             except (ValueError,KeyError,IndexError) as error:
                 mark_handled()
                 text=str(error) if isinstance(error,ValueError) else 'Кнопка устарела. Используйте /start.'
